@@ -1,0 +1,120 @@
+'''
+Simulate two node model of cumulative water heater power draws at hourly intervals in MWH for the period of one year
+Sums up second wise MWS power draws, concatenate them together and convert units to MWH
+Optional use to link together with timestamps for each interval
+'''
+import os as _os, sys as _sys
+import shutil
+import numpy as np
+from controller import thermostat_controller
+from twoNodeSimulator import *
+import datetime
+import itertools as it
+
+#Fix directories (Optional)
+# Dir = _os.path.dirname(__file__)
+# _sys.path.append(Dir)
+# _sys.path.append(_os.path.join(_os.path.dirname(__file__), '..'))
+
+# initialize paras
+
+# tank paras
+tank_height = 3.9                        # [ft]
+tank_radius = .66                        # [ft]
+tank_hmin = .2                           # [ft]
+
+# fixed paras
+power_rate = 4500 * 3.412141633          # [BTU/h] Q_elec 
+rho = 61.82                              # [lb/ft^3]
+R = 80                                   # [ft^2 F h/BTU],tank thermal resistance 
+Cp = 1                                   # [BTU/F lb]
+f_low = 59.9                             # [Hz]
+f_high = 60.1                            # [Hz]
+
+# temp initial values
+T_inlet = 65.                            # [F]
+T_amb = 75.                              # [F]
+T_setpoint = 120.                        # [F]
+T_deadband = 2.                          # [F]
+T_BOIL = 212.                            # [F] boiling temperature
+
+# simulation paras
+T_0 = 120                                # [F]
+duration = 8760                          # [h]
+delta_t = 1./3600                        # [h]
+
+# water demand data - use random demand
+W_t = np.repeat(np.random.randint(50,size=duration*2),1/delta_t/2) 
+# frequency data- use Gaussion distribution N(60,0.04^2)
+F_t = np.random.normal(60,0.04,int(duration/delta_t))
+
+wh = waterheater(duration=duration,                      # [h]
+                 W_t = W_t,
+                F_t = F_t, 
+                # simulation paras
+                T_0 = T_0,                               # [F]
+                delta_t = delta_t,                       # [h]
+                # static paras
+                tank_height = tank_height,               # [ft]
+                tank_radius = tank_radius,               # [ft]
+                tank_top_to_upperHeatingPos = tank_hmin, # [ft]
+                # fixed paras
+                power_rate = power_rate,                 # [BTU/h] Q_elec
+                rho = rho,                               # [lb/ft^3]
+                R = R,                                   # [ft^2 F h/BTU]
+                Cp = Cp,                                 # [BTU/F lb]
+                f_low = f_low,                           # [Hz]
+                f_high = f_high,                         # [Hz]
+                # temperature
+                T_inlet = T_inlet,                       # [F]
+                T_amb = T_amb,                           # [F]
+                T_setpoint = T_setpoint,                 # [F]
+                T_deadband = T_deadband,                 # [F]
+                T_BOIL = T_BOIL,                         # [F] boiling temperature
+                 )
+
+#Simulate power demand for 10,000 water heaters for a single year
+def yearSimulate():
+    #the following commented portion of code can be used to create hourly time stamps if none exsist.
+    theYear = []
+    #Set date format
+    dt = datetime.datetime(2017, 1, 1)
+    end = datetime.datetime(2010, 12, 30, 23, 59, 59)
+    step = datetime.timedelta(hours=1)
+    #Make hourly time stamps array
+    for i in range(8760):
+        theYear.append(dt.strftime('%Y-%m-%d %H:%M:%S'))
+        dt += step
+    theYear=np.array(theYear)
+    theYear = np.reshape(theYear, (8760,))
+
+
+
+    #Simulate when controller is off
+    wh.simulate(False)
+    #Create Lambda function to sum up secondwise power draws to hourly
+    f = lambda n,l: [sum(r) for r in it.izip_longest(*[l[i::n] for i in range(n)], fillvalue=0)]
+    unregulatedPower = wh.P_t
+    #sum up secondwise power uses into hour increments
+    totalUnregulated = f(3600, unregulatedPower)
+    totalUnregulated = np.array(totalUnregulated)
+    #Convert from Watt-seconds to MW hours
+    totalUnregulated = totalUnregulated * 2.77778e-10
+    #Multiply by 10,000 to simulate 10,000 water heaters
+    totalUnregulated = totalUnregulated * 10000
+
+    #Below is optional for if you want to create houlry time stamps for the array
+
+    totalUnregulated = np.reshape(totalUnregulated, (len(totalUnregulated),))
+    final_array = np.dstack((theYear, totalUnregulated))
+    final_array = np.reshape(final_array, (8760,2))
+    # # final_array = np.reshape(final_array, (8760,1))
+    # # Save as a csv the hourly power draws in MWH  
+    np.savetxt("Power Use", final_array, fmt= ('%s'), delimiter=',')
+    # np.savetxt("Power Use", totalUnregulated, delimiter=',')
+
+
+
+
+if __name__ == '__main__':
+    yearSimulate()
